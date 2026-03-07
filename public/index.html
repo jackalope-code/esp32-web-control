@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Sensor Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    h1 { text-align: center; margin-bottom: 20px; color: #00d9ff; }
+    
+    .status-bar { display: flex; justify-content: space-between; align-items: center; background: #16213e; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+    .connection-status { display: flex; align-items: center; gap: 10px; }
+    .status-dot { width: 12px; height: 12px; border-radius: 50%; }
+    .status-dot.connected { background: #00ff88; }
+    .status-dot.disconnected { background: #ff4444; }
+    .status-dot.connecting { background: #ffaa00; }
+    
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+    .card { background: #16213e; border-radius: 12px; padding: 20px; }
+    .card h2 { color: #00d9ff; margin-bottom: 15px; font-size: 1.2rem; }
+    
+    .sensor-data { display: grid; gap: 10px; }
+    .sensor-row { display: flex; justify-content: space-between; padding: 8px; background: #0f3460; border-radius: 6px; }
+    .sensor-label { color: #888; }
+    .sensor-value { color: #00ff88; font-weight: bold; }
+    
+    .controls { margin-top: 20px; }
+    .control-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+    .control-card { background: #16213e; border-radius: 8px; padding: 15px; }
+    .control-card h3 { color: #00d9ff; margin-bottom: 10px; }
+    
+    button { background: #00d9ff; color: #1a1a2e; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; margin: 2px; }
+    button:hover { background: #00b8d9; }
+    button:active { transform: scale(0.98); }
+    button.danger { background: #ff4444; color: white; }
+    button.success { background: #00ff88; }
+    
+    select, input { background: #0f3460; color: white; border: 1px solid #00d9ff; padding: 8px; border-radius: 4px; margin: 2px; }
+    
+    .log-container { background: #0a0a15; border-radius: 8px; padding: 15px; max-height: 300px; overflow-y: auto; }
+    .log-entry { font-family: monospace; font-size: 0.85rem; margin: 4px 0; }
+    .log-entry.sensor { color: #00ff88; }
+    .log-entry.command { color: #00d9ff; }
+    .log-entry.error { color: #ff4444; }
+    .log-entry.info { color: #888; }
+    
+    .timestamp { color: #666; font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>ESP32 Sensor Dashboard</h1>
+    
+    <div class="status-bar">
+      <div class="connection-status">
+        <div class="status-dot" id="wsStatus"></div>
+        <span id="wsStatusText">Disconnected</span>
+      </div>
+      <div>
+        <span id="deviceId">No device connected</span>
+      </div>
+    </div>
+    
+    <div class="grid">
+      <div class="card">
+        <h2>BME680 Sensors</h2>
+        <div class="sensor-data" id="bme680Data">
+          <div class="sensor-row"><span class="sensor-label">Temperature</span><span class="sensor-value">--</span></div>
+          <div class="sensor-row"><span class="sensor-label">Humidity</span><span class="sensor-value">--</span></div>
+          <div class="sensor-row"><span class="sensor-label">Pressure</span><span class="sensor-value">--</span></div>
+          <div class="sensor-row"><span class="sensor-label">Gas Resistance</span><span class="sensor-value">--</span></div>
+          <div class="sensor-row"><span class="sensor-label">Altitude</span><span class="sensor-value">--</span></div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <h2>TSL2591 Light Sensor</h2>
+        <div class="sensor-data" id="tsl2591Data">
+          <div class="sensor-row"><span class="sensor-label">Lux</span><span class="sensor-value">--</span></div>
+          <div class="sensor-row"><span class="sensor-label">Visible</span><span class="sensor-value">--</span></div>
+          <div class="sensor-row"><span class="sensor-label">IR</span><span class="sensor-value">--</span></div>
+          <div class="sensor-row"><span class="sensor-label">Full Spectrum</span><span class="sensor-value">--</span></div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="controls">
+      <div class="control-grid">
+        <div class="control-card">
+          <h3>Digital Output</h3>
+          <div>
+            <select id="digitalPin">
+              <option value="SDA">SDA</option>
+              <option value="SCL">SCL</option>
+              <option value="SCK">SCK</option>
+              <option value="MI">MI</option>
+              <option value="MO">MO</option>
+            </select>
+            <button class="success" onclick="digitalWrite(1)">ON</button>
+            <button class="danger" onclick="digitalWrite(0)">OFF</button>
+          </div>
+        </div>
+        
+        <div class="control-card">
+          <h3>Analog Output (PWM)</h3>
+          <div>
+            <select id="analogPin">
+              <option value="A0">A0</option>
+              <option value="A1">A1</option>
+              <option value="A2">A2</option>
+              <option value="A3">A3</option>
+            </select>
+            <input type="range" id="pwmValue" min="0" max="65535" value="32768" oninput="document.getElementById('pwmValueDisplay').textContent = this.value">
+            <span id="pwmValueDisplay">32768</span>
+            <button onclick="analogWrite()">Set</button>
+          </div>
+        </div>
+        
+        <div class="control-card">
+          <h3>Pin Mode</h3>
+          <div>
+            <select id="pinModePin">
+              <option value="SDA">SDA</option>
+              <option value="SCL">SCL</option>
+              <option value="SCK">SCK</option>
+              <option value="MI">MI</option>
+              <option value="MO">MO</option>
+              <option value="A0">A0</option>
+              <option value="A1">A1</option>
+              <option value="A2">A2</option>
+              <option value="A3">A3</option>
+            </select>
+            <select id="pinMode">
+              <option value="input">Input</option>
+              <option value="output">Output</option>
+              <option value="analog">Analog</option>
+              <option value="pwm">PWM</option>
+            </select>
+            <button onclick="setPinMode()">Set</button>
+          </div>
+        </div>
+        
+        <div class="control-card">
+          <h3>System</h3>
+          <div>
+            <button onclick="sendCommand({cmd: 'status'})">Get Status</button>
+            <button class="danger" onclick="sendCommand({cmd: 'restart'})">Restart</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="card" style="margin-top: 20px;">
+      <h2>Communication Log</h2>
+      <div class="log-container" id="logContainer"></div>
+    </div>
+  </div>
+
+  <script>
+    // Configuration - Update this to match your server
+    const WS_URL = 'ws://192.168.1.100:8080/ws';
+    // For JWT, you would typically generate this server-side
+    // For now, we'll let the server generate a test token
+    const JWT_TOKEN = null; // Will be requested from server
+    
+    let ws = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 10;
+    
+    function connect() {
+      const wsStatus = document.getElementById('wsStatus');
+      const wsStatusText = document.getElementById('wsStatusText');
+      
+      wsStatus.className = 'status-dot connecting';
+      wsStatusText.textContent = 'Connecting...';
+      
+      const url = JWT_TOKEN ? `${WS_URL}?token=${JWT_TOKEN}` : WS_URL;
+      ws = new WebSocket(url);
+      
+      ws.onopen = () => {
+        wsStatus.className = 'status-dot connected';
+        wsStatusText.textContent = 'Connected';
+        reconnectAttempts = 0;
+        addLog('info', 'Connected to WebSocket server');
+      };
+      
+      ws.onclose = () => {
+        wsStatus.className = 'status-dot disconnected';
+        wsStatusText.textContent = 'Disconnected';
+        addLog('error', 'Disconnected from server');
+        
+        if (reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts++;
+          setTimeout(connect, Math.min(3000 * reconnectAttempts, 30000));
+        }
+      };
+      
+      ws.onerror = (error) => {
+        addLog('error', 'WebSocket error');
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleMessage(data);
+        } catch (e) {
+          addLog('info', `Raw: ${event.data}`);
+        }
+      };
+    }
+    
+    function handleMessage(data) {
+      if (data.type === 'sensor_data') {
+        updateSensors(data.sensors);
+        addLog('sensor', `Sensor data received: ${JSON.stringify(data.sensors)}`);
+      } else if (data.type === 'connected') {
+        document.getElementById('deviceId').textContent = `Device: ${data.device_id || 'Unknown'}`;
+        addLog('info', `Device connected: ${data.device_id}`);
+      } else if (data.type === 'ack') {
+        addLog('command', `Ack: ${JSON.stringify(data)}`);
+        if (data.success) {
+          addLog('info', `Command succeeded: ${data.cmd}`);
+        } else {
+          addLog('error', `Command failed: ${data.cmd} - ${data.error || 'Unknown error'}`);
+        }
+      } else if (data.type === 'error') {
+        addLog('error', data.message);
+      }
+    }
+    
+    function updateSensors(sensors) {
+      if (sensors.BME680) {
+        const bme = sensors.BME680;
+        const bme680Data = document.getElementById('bme680Data');
+        bme680Data.innerHTML = `
+          <div class="sensor-row"><span class="sensor-label">Temperature</span><span class="sensor-value">${bme.temp ?? '--'} °C</span></div>
+          <div class="sensor-row"><span class="sensor-label">Humidity</span><span class="sensor-value">${bme.humidity ?? '--'} %</span></div>
+          <div class="sensor-row"><span class="sensor-label">Pressure</span><span class="sensor-value">${bme.pressure ?? '--'} hPa</span></div>
+          <div class="sensor-row"><span class="sensor-label">Gas Resistance</span><span class="sensor-value">${bme.gas ?? '--'} Ω</span></div>
+          <div class="sensor-row"><span class="sensor-label">Altitude</span><span class="sensor-value">${bme.altitude ?? '--'} m</span></div>
+        `;
+      }
+      
+      if (sensors.TSL2591) {
+        const tsl = sensors.TSL2591;
+        const tsl2591Data = document.getElementById('tsl2591Data');
+        tsl2591Data.innerHTML = `
+          <div class="sensor-row"><span class="sensor-label">Lux</span><span class="sensor-value">${tsl.lux ?? '--'}</span></div>
+          <div class="sensor-row"><span class="sensor-label">Visible</span><span class="sensor-value">${tsl.visible ?? '--'}</span></div>
+          <div class="sensor-row"><span class="sensor-label">IR</span><span class="sensor-value">${tsl.ir ?? '--'}</span></div>
+          <div class="sensor-row"><span class="sensor-label">Full Spectrum</span><span class="sensor-value">${tsl.full ?? '--'}</span></div>
+        `;
+      }
+    }
+    
+    function sendCommand(cmd) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(cmd));
+        addLog('command', `Sent: ${JSON.stringify(cmd)}`);
+      } else {
+        addLog('error', 'Not connected');
+      }
+    }
+    
+    function digitalWrite(value) {
+      const pin = document.getElementById('digitalPin').value;
+      sendCommand({cmd: 'digital_write', pin: pin, value: value});
+    }
+    
+    function analogWrite() {
+      const pin = document.getElementById('analogPin').value;
+      const value = parseInt(document.getElementById('pwmValue').value);
+      sendCommand({cmd: 'analog_write', pin: pin, value: value});
+    }
+    
+    function setPinMode() {
+      const pin = document.getElementById('pinModePin').value;
+      const mode = document.getElementById('pinMode').value;
+      sendCommand({cmd: 'pin_mode', pin: pin, mode: mode});
+    }
+    
+    function addLog(type, message) {
+      const container = document.getElementById('logContainer');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      const time = new Date().toLocaleTimeString();
+      entry.innerHTML = `<span class="timestamp">[${time}]</span> ${message}`;
+      container.insertBefore(entry, container.firstChild);
+      
+      // Keep only last 100 entries
+      while (container.children.length > 100) {
+        container.removeChild(container.lastChild);
+      }
+    }
+    
+    // Auto-reconnect on visibility change
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && (!ws || ws.readyState !== WebSocket.OPEN)) {
+        connect();
+      }
+    });
+    
+    // Connect on load
+    connect();
+  </script>
+</body>
+</html>
