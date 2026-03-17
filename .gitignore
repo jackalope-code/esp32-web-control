@@ -2,4 +2,16 @@
 __pycache__/
 *.pyc
 
+# Environment files (never commit secrets)
 .env
+.env.*
+!.env.example
+*.local
+*.pem
+
+# Build artifacts
+.next/
+dist/
+out/
+
+node_modules/
