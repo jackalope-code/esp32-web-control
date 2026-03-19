@@ -52,22 +52,28 @@ function Controls({ sendCommand, displayInfo = { count: 0, display_mode: 'chaine
   const [rgbR, setRgbR] = useState(0);
   const [rgbG, setRgbG] = useState(255);
   const [rgbB, setRgbB] = useState(0);
+  // dirty=true while the user has unsent edits; prevents incoming acks from
+  // overwriting the picker before the user clicks Set Color.
+  const [rgbDirty, setRgbDirty] = useState(false);
 
-  // Sync slider state whenever the parent receives confirmed device color
+  // Sync slider state whenever the parent receives confirmed device color,
+  // but only when the user hasn't made unsent edits.
   useEffect(() => {
-    if (rgbColor && rgbColor.r != null) {
+    if (!rgbDirty && rgbColor && rgbColor.r != null) {
       setRgbR(rgbColor.r);
       setRgbG(rgbColor.g);
       setRgbB(rgbColor.b);
     }
-  }, [rgbColor]);
+  }, [rgbColor, rgbDirty]);
 
   const handleSendRgb = () => {
     sendCommand({ cmd: 'rgb_led', r: rgbR, g: rgbG, b: rgbB });
     if (setRgbColor) setRgbColor({ r: rgbR, g: rgbG, b: rgbB });
+    setRgbDirty(false); // allow confirmed ack to re-sync sliders to device state
   };
 
   const handleRgbColorPicker = (hex) => {
+    setRgbDirty(true);
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
@@ -127,9 +133,6 @@ function Controls({ sendCommand, displayInfo = { count: 0, display_mode: 'chaine
             <select id="digitalPin">
               <option value="SDA">SDA</option>
               <option value="SCL">SCL</option>
-              <option value="SCK">SCK</option>
-              <option value="MI">MI</option>
-              <option value="MO">MO</option>
             </select>
             <button className="success" onClick={() => sendCommand({ cmd: 'digital_write', pin: document.getElementById('digitalPin').value, value: 1 })}>ON</button>
             <button className="danger" onClick={() => sendCommand({ cmd: 'digital_write', pin: document.getElementById('digitalPin').value, value: 0 })}>OFF</button>
@@ -180,7 +183,7 @@ function Controls({ sendCommand, displayInfo = { count: 0, display_mode: 'chaine
                   min="0"
                   max="255"
                   value={val}
-                  onChange={e => set(parseInt(e.target.value, 10))}
+                  onChange={e => { setRgbDirty(true); set(parseInt(e.target.value, 10)); }}
                   className={`flex-1 ${color}`}
                 />
                 <span className="font-mono text-xs text-blue-300 w-8 text-right">{val}</span>
@@ -190,9 +193,9 @@ function Controls({ sendCommand, displayInfo = { count: 0, display_mode: 'chaine
           <div className="flex gap-2">
             <button className="success flex-1" onClick={handleSendRgb}>Set Color</button>
             <button
-              className="text-xs px-3 py-1 rounded bg-blue-700 hover:bg-blue-600"
-              onClick={() => sendCommand({ cmd: 'rgb_led_get' })}
-              title="Fetch current color from device"
+              onClick={() => { setRgbDirty(false); sendCommand({ cmd: 'rgb_led_get' }); }}
+              className="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm"
+              title="Sync current LED color from device"
             >↺ Sync</button>
           </div>
         </div>

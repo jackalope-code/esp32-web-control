@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const fs = require('fs');
 const http = require('http');
 const WebSocket = require('ws');
 const jwt = require('jsonwebtoken');
@@ -188,7 +189,12 @@ app.use((req, res, next) => {
 });
 
 app.get('*', (req, res) => {
-  res.sendFile(path.join(DIST_PATH, 'index.html'));
+  const indexPath = path.join(DIST_PATH, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).send('Client not built — run: npm run build');
+  }
 });
 
 function authenticateWS(req, isDevice = false) {
@@ -252,6 +258,7 @@ wss.on('connection', (ws, req) => {
   
   ws._userInfo = authResult.payload;
   ws._isDevice = authResult.isDevice;
+  ws._remoteAddress = req.socket.remoteAddress;
   
   if (authResult.isDevice) {
     console.log(`Device connected: ${authResult.payload.device_id} (${req.socket.remoteAddress})`);
@@ -302,10 +309,21 @@ let lastDeviceData = { timestamp: 0 };
 const DEVICE_TIMEOUT_MS = 15000; // 15 seconds without data = disconnected
 // Cache last known RGB LED color from firmware acks so new browser clients can sync
 let lastRgbColor = null; // { r, g, b } or null if never reported
+// Deduplication: track last time each poll command was forwarded to the device.
+// Multiple browser tabs each send these on connect; only forward once per 500 ms.
+const POLL_CMDS = new Set(['status', 'display_list', 'nfc_list', 'rgb_led_get']);
+const lastForwarded = new Map(); // cmd -> timestamp (ms)
+const FORWARD_DEBOUNCE_MS = 500;
 
 function handleMessage(ws, message) {
   console.log('Received:', message);
   const userId = ws._userInfo?.user_id || 'unknown';
+  // Tag firmware device immediately on identify (before first sensor_data)
+  if (message.type === 'identify') {
+    ws._isDevice = true;
+    console.log(`[WS] Device identified: firmware_version=${message.firmware_version} (${ws._remoteAddress})`);
+    return;
+  }
   if (message.type === 'sensor_data') {
     ws._isDevice = true; // tag this connection as the firmware device
     lastDeviceData.timestamp = Date.now();
@@ -431,10 +449,11 @@ function handleMessage(ws, message) {
       console.log(`Command from ${userId}: ${JSON.stringify(message)}`);
       const data = JSON.stringify(message);
       // NFC and device-only commands: send only to the firmware device
+      // Note: rgb_led / rgb_led_get are intentionally NOT here — they use the
+      // broadcast path below so they reach the firmware regardless of _isDevice timing.
       const deviceOnlyCmds = ['nfc_write', 'nfc_read', 'nfc_list', 'display_list',
         'digital_write', 'digital_read', 'analog_write', 'analog_read', 'pin_mode',
-        'eeprom_write', 'eeprom_read', 'st25dv_write', 'st25dv_read', 'restart', 'status',
-        'rgb_led', 'rgb_led_get'];
+        'eeprom_write', 'eeprom_read', 'st25dv_write', 'st25dv_read', 'restart', 'status'];
       if (deviceOnlyCmds.includes(message.cmd)) {
         if (ws._isDevice) {
           // Response FROM device — forward to browser clients as an ack
@@ -444,14 +463,39 @@ function handleMessage(ws, message) {
             }
           });
         } else {
-          // Command FROM browser — route to device only
+          // Command FROM browser — route to device only.
+          // Deduplicate poll/init commands so simultaneous sends from multiple
+          // browser tabs don't flood the firmware.
+          if (POLL_CMDS.has(message.cmd)) {
+            const now = Date.now();
+            const last = lastForwarded.get(message.cmd) || 0;
+            if (now - last < FORWARD_DEBOUNCE_MS) {
+              return; // duplicate within debounce window — drop
+            }
+            lastForwarded.set(message.cmd, now);
+          }
           wss.clients.forEach((client) => {
             if (client.readyState === WebSocket.OPEN && client._isDevice) {
               client.send(data);
             }
           });
-        }
+          // Optimistically cache RGB so new browser clients see the last-set color
+          if (message.cmd === 'rgb_led' && message.r != null) {
+            lastRgbColor = { r: message.r, g: message.g, b: message.b };
+            const deviceClients = [...wss.clients].filter(c => c._isDevice && c.readyState === WebSocket.OPEN);
+            console.log(`[RGB LED] Routing rgb_led r=${message.r} g=${message.g} b=${message.b} → ${deviceClients.length} device client(s)`);
+          }
+          if (message.cmd === 'rgb_led_get') {
+            const deviceClients = [...wss.clients].filter(c => c._isDevice && c.readyState === WebSocket.OPEN);
+            console.log(`[RGB LED] Routing rgb_led_get → ${deviceClients.length} device client(s)`);
+          }        }
       } else {
+        // Broadcast to all other clients (includes firmware — works regardless of _isDevice)
+        if (message.cmd === 'rgb_led' && message.r != null) {
+          lastRgbColor = { r: message.r, g: message.g, b: message.b };
+          const devs = [...wss.clients].filter(c => c._isDevice && c.readyState === WebSocket.OPEN).length;
+          console.log(`[RGB LED] Broadcasting rgb_led r=${message.r} g=${message.g} b=${message.b} (${devs} tagged device(s) in pool)`);
+        }
         wss.clients.forEach((client) => {
           if (client.readyState === WebSocket.OPEN && client !== ws) {
             client.send(data);

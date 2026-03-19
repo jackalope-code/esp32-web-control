@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "node --watch server.js",
+    "dev:client": "cd client && npm run dev",
     "build": "cd client && npm run build",
     "install-all": "npm install && cd client && npm install"
   },
@@ -20,7 +22,9 @@
     "uuid": "^13.0.0",
     "ws": "^8.16.0"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

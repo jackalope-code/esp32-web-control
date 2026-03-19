@@ -110,3 +110,23 @@ This repository contains the server and front-end code for an ESP32 IoT project.
 ---
 
 When working on this project, keep the separation between the web control interface (this repo) and the device firmware (D:/) in mind. See README.md for diagrams and more details.
+
+---
+
+## Pin Mapping — Safety Rule
+
+**Never change pin names, pin assignments, or pin-to-peripheral mappings without first confirming with the user.**
+
+Pin wiring is determined by the physical PCB traces, not by convention or assumption. Wrong pin assignments cause silent hardware failures — the firmware runs without errors but the wrong physical pins are toggled.
+
+Known physical wiring (as of 2026-03-18, confirmed working):
+
+| Purpose | Firmware symbol | Physical pad | Notes |
+|---------|----------------|--------------|-------|
+| RGB LED Red | `board.MOSI` | MO | Common-anode LED, PWM |
+| RGB LED Green | `board.MISO` | MI | Common-anode LED, PWM |
+| RGB LED Blue | `board.SCK` | SCK | Common-anode LED, PWM |
+| Analog/PWM | `board.A0`–`board.A3` | A0–A3 | Free for general use |
+| Digital | `board.SDA`, `board.SCL` | SDA, SCL | Free for general use |
+
+SCK/MI/MO must **not** be reassigned to any other purpose. They are blocked in `pin_controller.py` (`setup_pin` guard) and absent from `DIGITAL_PINS` in `config.py`.

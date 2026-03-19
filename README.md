@@ -14,6 +14,32 @@ A real-time dashboard for an ESP32-S3 QTPy sensor node, built with Node.js/Expre
 
 ---
 
+## Hardware Pin Mapping
+
+> **Important:** The physical pin assignments for the RGB LED were determined by tracing the actual PCB wiring — they do not match the default assumptions. Before changing any pin name or mapping, confirm the physical wiring with the user.
+
+### RGB LED (common-anode, 10mm Adafruit, 3V anode)
+
+The shared anode leg connects to 3V. The R/G/B cathode legs connect to the SPI pads on the QT Py:
+
+| Channel | Firmware pin | QT Py pad |
+|---------|--------------|----------|
+| Red | `board.MOSI` | MO |
+| Green | `board.MISO` | MI |
+| Blue | `board.SCK` | SCK |
+
+Configured in `config.py` (`RGB_LED_PIN_R/G/B`). SCK/MI/MO are **reserved** for the LED and must not appear in `DIGITAL_PINS` or be exposed in the digital output UI.
+
+### Analog pins (A0–A3)
+
+A0–A3 are **free** for general analog/PWM use — they are *not* connected to the LED. All four appear in `ANALOG_PINS` and in the UI's Analog Output selector.
+
+### Firmware guard
+
+`commands/pin_controller.py` rejects any `setup_pin` call targeting `SCK`, `MI`, or `MO` to prevent runtime clobbering of the LED's PWM channels.
+
+---
+
 ## Architecture
 
 ```

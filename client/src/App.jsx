@@ -90,12 +90,14 @@ function App() {
     let isMounted = true;
     let reconnectTimeout = null;
     let ws;
-    const WS_HOST = import.meta.env.VITE_WS_HOST || window.location.hostname;
-    const WS_PORT = import.meta.env.VITE_WS_PORT || '8080';
+    // Use same-origin WS so Vite's proxy handles it in dev; in production the
+    // Express server serves the built client on the same port as the WS server.
+    const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const WS_BASE = `${WS_PROTOCOL}//${window.location.host}`;
     // Include token in WebSocket URL if available
-    const WS_URL = token 
-      ? `ws://${WS_HOST}:${WS_PORT}/ws?token=${encodeURIComponent(token)}`
-      : `ws://${WS_HOST}:${WS_PORT}/ws`;
+    const WS_URL = token
+      ? `${WS_BASE}/ws?token=${encodeURIComponent(token)}`
+      : `${WS_BASE}/ws`;
     let connecting = false;
 
     function connectWS() {
